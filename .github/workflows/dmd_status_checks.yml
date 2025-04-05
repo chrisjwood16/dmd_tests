@@ -35,9 +35,9 @@ jobs:
       - name: 🚀 Run lookup report in correct mode
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            python main.py --mode force
+            python src/main.py --mode force
           else
-            python main.py --mode auto
+            python src/main.py --mode auto
           fi
 
       - name: 📝 Commit and push report

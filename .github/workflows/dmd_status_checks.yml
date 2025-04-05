@@ -1,0 +1,49 @@
+name: dm+d code status report
+
+on:
+  schedule:
+    - cron: '0 7 * * *'  # Daily at 07:00 UTC
+  workflow_dispatch:      # Allows manual trigger with custom input
+
+jobs:
+  run-dmd-lookup:
+    runs-on: ubuntu-latest
+
+    # Define inputs for manual trigger
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v3
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 💾 Install dependencies
+        run: |
+          pip install requests
+
+      - name: 🔐 Create credentials.json from GitHub secrets
+        run: |
+          echo '{
+            "CLIENT_ID": "${{ secrets.CLIENT_ID }}",
+            "CLIENT_SECRET": "${{ secrets.CLIENT_SECRET }}"
+          }' > credentials.json
+
+      - name: 🚀 Run lookup report in correct mode
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            python your_script_name.py --mode force
+          else
+            python your_script_name.py --mode auto
+          fi
+
+      - name: 📝 Commit and push report
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add reports/
+          git commit -m "📝 Update dm+d lookup report" || echo "No changes to commit"
+          git push origin HEAD:${{ github.ref }}

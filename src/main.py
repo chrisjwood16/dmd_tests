@@ -4,6 +4,8 @@ import json
 import os
 import argparse
 from collections import defaultdict
+from datetime import datetime
+import configparser
 
 # Load CLIENT_ID and CLIENT_SECRET from external file
 with open("credentials.json", "r") as f:
@@ -17,6 +19,13 @@ TOKEN_URL = "https://ontology.nhs.uk/authorisation/auth/realms/nhs-digital-termi
 
 # NHS Terminology Server API Endpoints
 LOOKUP_URL = "https://ontology.nhs.uk/production1/fhir/CodeSystem/$lookup"
+
+# Read the configuration from config.ini
+config = configparser.ConfigParser()
+config.read('src/config.ini')
+
+# Get the preview_base_url from the DEFAULT section
+PREVIEW_BASE_URL = config['DEFAULT'].get('preview_base_url', '').strip()
 
 def get_access_token():
     """
@@ -273,6 +282,8 @@ def write_dmd_lookup_report_html(code_objects, version):
         status = (obj.status or "unknown").lower()
         grouped[status][obj.folder].append(obj)
 
+    link = f"https://github.com/chrisjwood16/dmd_tests/blob/main/reports/"
+
     # Begin HTML
     report = f"""
     <html>
@@ -329,6 +340,7 @@ def write_dmd_lookup_report_html(code_objects, version):
         <header>
             <img src="{base64_image}" alt="OpenPrescribing logo" />
             <h2>dm+d Lookup Report – version {version}</h2>
+            <div class="back-link"><p><a href="{PREVIEW_BASE_URL}{link}list_dmd_lookup_reports.html">← Back to all reports</a></p></div>
             <p>This report lists all dm+d codes extracted from SQL files in OpenPrescribing Hospitals and their lookup status via the NHS Terminology Server.</p>
         </header>
     """
@@ -363,6 +375,10 @@ def write_dmd_lookup_report_html(code_objects, version):
     filepath = os.path.join(reports_dir, filename)
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(report)
+    filename = f"dmd_lookup_report_latest.html"
+    filepath = os.path.join(reports_dir, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(report)
 
     print(f"Report written to: {filepath}")
 
@@ -384,6 +400,112 @@ def update_reports(access_token, version):
         
     # Step 5: Write HTML file
     write_dmd_lookup_report_html(code_objects, version)
+    generate_dmd_lookup_index_html()
+
+def generate_dmd_lookup_index_html():
+    import os
+    import re
+    from datetime import datetime
+
+    reports_dir = os.path.join(os.getcwd(), "reports")
+
+    # Read base64 logo
+    image_path = os.path.join(os.getcwd(), "src", "base64_image.txt")
+    with open(image_path, "r") as f:
+        base64_image = f.read()
+
+    # Get all report files
+    html_files = [
+        f for f in os.listdir(reports_dir)
+        if f.startswith("dmd_lookup_report_") and f.endswith(".html")
+    ]
+
+    version_files = []
+    for filename in html_files:
+        match = re.match(r"dmd_lookup_report_([\d_]+)\.html", filename)
+        if match:
+            version_raw = match.group(1)
+            version = version_raw.replace("_", ".")
+            try:
+                dt = datetime.strptime(version.split('.')[0], "%Y%m")
+                version_files.append((dt, version, filename))
+            except ValueError:
+                continue
+
+    version_files.sort(reverse=True)
+
+    html_content = f"""
+    <html>
+    <head>
+    <title>dm+d Lookup Reports</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+            margin: 20px;
+        }}
+        .container {{
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }}
+        header {{
+            text-align: center;
+            margin-bottom: 40px;
+        }}
+        header img {{
+            max-width: 650px;
+            margin-bottom: 10px;
+        }}
+        h2 {{
+            color: #333;
+        }}
+        ul {{
+            padding-left: 20px;
+        }}
+        li {{
+            margin-bottom: 10px;
+        }}
+        a {{
+            text-decoration: none;
+            color: #0485d1;
+        }}
+        a:hover {{
+            text-decoration: underline;
+        }}
+    </style>
+    </head>
+    <body>
+    <div class="container">
+        <header>
+            <img src="{base64_image}" alt="OpenPrescribing logo">
+            <h2>dm+d Lookup Reports Index</h2>
+        </header>
+        <ul>
+    """
+
+    for i, (_, version, filename) in enumerate(version_files):
+        label = f"{version}"
+        if i == 0:
+            label += " ← Latest"
+        link = f"https://github.com/chrisjwood16/dmd_tests/blob/main/reports/{filename}"
+        html_content += f'<li><a href="{PREVIEW_BASE_URL}{link}">{label}</a></li>\n'
+
+    html_content += """
+        </ul>
+    </div>
+    </body>
+    </html>
+    """
+
+    output_path = os.path.join(reports_dir, "list_dmd_lookup_reports.html")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+    print(f"Index written to: {output_path}")
 
 
 class DmdCode:

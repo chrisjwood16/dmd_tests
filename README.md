@@ -24,7 +24,7 @@ It helps ensure that all referenced dm+d codes are still valid and highlights an
 An HTML report is generated for each dm+d release, listing codes by status and folder.
 
 - **[View report index](https://htmlpreview.github.io/?https://github.com/chrisjwood16/dmd_tests/blob/main/reports/list_dmd_lookup_reports.html)**
-- **[View latest report](https://htmlpreview.github.io/?https://github.com/chrisjwood16/dmd_tests/blob/main/reports/dmd_lookup_latest.html)**
+- **[View latest report](https://htmlpreview.github.io/?https://github.com/chrisjwood16/dmd_tests/blob/main/reports/dmd_lookup_report_latest.html)**
 
 ## Automation
 

@@ -383,24 +383,20 @@ def write_dmd_lookup_report_html(code_objects, version):
     print(f"Report written to: {filepath}")
 
 def update_reports(access_token, version):
-    # Step 1: Extract dmd ids from measure SQL files
     code_objects = extract_dmd_id_from_sql_files()
-
-    # Step 2: Get unique codes from objects
     unique_codes = list({obj.code for obj in code_objects})
     
-    # Step 3: Build and send batch lookup
     bundle = build_lookup_bundle(unique_codes)
     response_bundle = send_lookup_bundle(access_token, bundle)
     status_map = parse_lookup_responses(response_bundle)
 
-    # Step 4: Set status on objects
     for obj in code_objects:
         obj.set_status(status_map.get(obj.code, "unknown"))
         
-    # Step 5: Write HTML file
     write_dmd_lookup_report_html(code_objects, version)
     generate_dmd_lookup_index_html()
+
+    return code_objects
 
 def generate_dmd_lookup_index_html():
     import os
@@ -551,6 +547,33 @@ def main():
             print(f"Version {version} already exists in reports directory.")
         else:
             update_reports(access_token, version)
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate dm+d status report")
+    parser.add_argument("--mode", choices=["auto", "force"], default="auto")
+    parser.add_argument("--fail-on-problem", action="store_true")
+    args = parser.parse_args()
+
+    access_token = get_access_token()
+    existing_versions = get_report_versions()
+    version = get_dmd_version_via_lookup(access_token)
+
+    should_run = args.mode == "force" or version not in existing_versions
+
+    if should_run:
+        code_objects = update_reports(access_token, version)
+
+        # After report is written, fail if needed
+        if args.fail_on_problem:
+            problems = [obj for obj in code_objects if obj.status in ("inactive", "unknown")]
+            if problems:
+                print("\nIssues detected with the following codes:\n")
+                for obj in problems:
+                    print(f"- {obj.code} ({obj.status}) in folder '{obj.folder}'")
+                print("\nFailing workflow due to problem codes.\n")
+                exit(1)
+    else:
+        print(f"Version {version} already processed.")
 
 if __name__ == "__main__":
     main()

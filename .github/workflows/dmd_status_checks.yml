@@ -3,7 +3,7 @@ name: dm+d code status report
 on:
   schedule:
     - cron: '0 7 * * *'  # Daily at 07:00 UTC
-  workflow_dispatch:      # Allows manual trigger with custom input
+  workflow_dispatch:      # Allows manual manual trigger
 
 permissions:
   contents: write  # Required to push changes to the repository
@@ -11,9 +11,7 @@ permissions:
 jobs:
   run-dmd-lookup:
     runs-on: ubuntu-latest
-
-    # Define inputs for manual trigger
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    continue-on-error: false
 
     steps:
       - name: 📥 Checkout repository
@@ -35,18 +33,22 @@ jobs:
             "CLIENT_SECRET": "${{ secrets.CLIENT_SECRET }}"
           }' > credentials.json
 
-      - name: 🚀 Run lookup report in correct mode
+      - name: 🚀 Run lookup report and capture exit status
+        id: run_lookup
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            python src/main.py --mode force
-          else
-            python src/main.py --mode auto
-          fi
+          set +e
+          python src/main.py --mode ${{ github.event_name == 'workflow_dispatch' && 'force' || 'auto' }} --fail-on-problem
+          echo "exit_code=$?" >> $GITHUB_OUTPUT
+          exit 0
 
-      - name: 📝 Commit and push report
+      - name: 📝 Commit and push report even if report has issues
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add reports/
           git commit -m "📝 Update dm+d lookup report" || echo "No changes to commit"
           git push origin HEAD:${{ github.ref }}
+
+      - name: 🚨 Fail workflow if lookup found problems
+        if: steps.run_lookup.outputs.exit_code != '0'
+        run: exit 1

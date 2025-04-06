@@ -565,6 +565,8 @@ def main():
 
         # After report is written, fail if needed
         if args.fail_on_problem:
+            code_objects[0].set_status('inactive')
+            code_objects[1].set_status('unknown')
             problems = [obj for obj in code_objects if obj.status in ("inactive", "unknown")]
             if problems:
                 print("\nIssues detected with the following codes:\n")

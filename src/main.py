@@ -393,6 +393,9 @@ def update_reports(access_token, version):
     for obj in code_objects:
         obj.set_status(status_map.get(obj.code, "unknown"))
         
+    code_objects[0].set_status('inactive')
+    code_objects[1].set_status('unknown')
+    
     write_dmd_lookup_report_html(code_objects, version)
     generate_dmd_lookup_index_html()
 
@@ -565,8 +568,6 @@ def main():
 
         # After report is written, fail if needed
         if args.fail_on_problem:
-            code_objects[0].set_status('inactive')
-            code_objects[1].set_status('unknown')
             problems = [obj for obj in code_objects if obj.status in ("inactive", "unknown")]
             if problems:
                 print("\nIssues detected with the following codes:\n")

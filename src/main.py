@@ -392,10 +392,11 @@ def update_reports(access_token, version):
 
     for obj in code_objects:
         obj.set_status(status_map.get(obj.code, "unknown"))
-        
-    code_objects[0].set_status('inactive')
-    code_objects[1].set_status('unknown')
-    
+
+    #Testing for inactive/unknown codes - disable when live    
+    #code_objects[0].set_status('inactive')
+    #code_objects[1].set_status('unknown')
+
     write_dmd_lookup_report_html(code_objects, version)
     generate_dmd_lookup_index_html()
 

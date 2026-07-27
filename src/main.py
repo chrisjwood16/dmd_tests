@@ -7,6 +7,8 @@ from collections import defaultdict
 from datetime import datetime
 import configparser
 
+from snomed import scan_sql
+
 # Load CLIENT_ID and CLIENT_SECRET from external file
 with open("credentials.json", "r") as f:
     credentials = json.load(f)
@@ -126,6 +128,7 @@ def extract_dmd_id_from_sql_files():
     html_base_url = "https://github.com/bennettoxford/openprescribing-hospitals/tree/main/viewer/measures"
 
     code_objects = []
+    suspect_objects = []
 
     response = requests.get(base_api_url)
     if response.status_code != 200:
@@ -155,14 +158,18 @@ def extract_dmd_id_from_sql_files():
             sql_response = requests.get(raw_url)
 
             if sql_response.status_code == 200:
-                sql_text = sql_response.text
-                long_numbers = re.findall(r'\b\d{7,}\b', sql_text)
-                unique_numbers = set(long_numbers)
+                codes, suspects = scan_sql(sql_response.text)
 
-                for code in unique_numbers:
-                    code_objects.append(DmdCode(code=code, folder=folder, url=folder_html_url))
+                for code in codes:
+                    code_objects.append(
+                        DmdCode(code=code, folder=folder, url=folder_html_url)
+                    )
+                for code, reason in suspects:
+                    suspect_objects.append(
+                        DmdCode(code=code, folder=folder, url=folder_html_url, error=reason)
+                    )
 
-    return code_objects
+    return code_objects, suspect_objects
 
 def build_lookup_bundle(codes, system_url="https://dmd.nhs.uk"):
     """
@@ -258,7 +265,7 @@ def parse_lookup_responses(response_bundle):
 
     return status_map
 
-def write_dmd_lookup_report_html(code_objects, version):
+def write_dmd_lookup_report_html(code_objects, version, suspect_objects=None):
     """
     Generates a styled HTML report for dm+d lookup results grouped by status and folder.
     Filename is based on the CodeSystem version.
@@ -281,6 +288,10 @@ def write_dmd_lookup_report_html(code_objects, version):
     for obj in code_objects:
         status = (obj.status or "unknown").lower()
         grouped[status][obj.folder].append(obj)
+
+    suspect_by_folder = defaultdict(list)
+    for obj in (suspect_objects or []):
+        suspect_by_folder[obj.folder].append(obj)
 
     link = f"https://github.com/chrisjwood16/dmd_tests/blob/main/reports/"
 
@@ -333,6 +344,7 @@ def write_dmd_lookup_report_html(code_objects, version):
         .active {{ background-color: #d7f0d2; color: #0f7b0f; }}
         .inactive {{ background-color: #fbdcdc; color: #b30000; }}
         .unknown {{ background-color: #fff6cc; color: #cc7a00; }}
+        .malformed {{ background-color: #e6ddf5; color: #5b2d90; }}
     </style>
     </head>
     <body>
@@ -357,7 +369,25 @@ def write_dmd_lookup_report_html(code_objects, version):
             section_html += "</ul>\n"
         return section_html
 
+    def render_suspect_section(folder_dict):
+        section_html = (
+            "<h2>Malformed codes <span class='status-box malformed'>Malformed</span></h2>\n"
+            "<p>Numeric literals that are not BNF codes but fail SNOMED CT validation. "
+            "These are likely transcription errors and were not sent to the terminology "
+            "server.</p>\n"
+        )
+        if not folder_dict:
+            return section_html + "<p>No codes found.</p>"
+        for folder in sorted(folder_dict.keys()):
+            objs = folder_dict[folder]
+            section_html += f"<h3>Folder: <a href='{objs[0].url}'>{folder}</a></h3>\n<ul>\n"
+            for obj in objs:
+                section_html += f"<li>{obj.code} &ndash; {obj.error}</li>\n"
+            section_html += "</ul>\n"
+        return section_html
+
     # Render sections in order
+    report += render_suspect_section(suspect_by_folder)
     report += render_status_section("Unknown codes", "unknown", grouped["unknown"])
     report += render_status_section("Inactive codes", "inactive", grouped["inactive"])
     report += render_status_section("Active codes", "active", grouped["active"])
@@ -383,7 +413,7 @@ def write_dmd_lookup_report_html(code_objects, version):
     print(f"Report written to: {filepath}")
 
 def update_reports(access_token, version):
-    code_objects = extract_dmd_id_from_sql_files()
+    code_objects, suspect_objects = extract_dmd_id_from_sql_files()
     unique_codes = list({obj.code for obj in code_objects})
     
     bundle = build_lookup_bundle(unique_codes)
@@ -397,10 +427,10 @@ def update_reports(access_token, version):
     #code_objects[0].set_status('inactive')
     #code_objects[1].set_status('unknown')
 
-    write_dmd_lookup_report_html(code_objects, version)
+    write_dmd_lookup_report_html(code_objects, version, suspect_objects)
     generate_dmd_lookup_index_html()
 
-    return code_objects
+    return code_objects, suspect_objects
 
 def generate_dmd_lookup_index_html():
     import os
@@ -509,48 +539,19 @@ def generate_dmd_lookup_index_html():
 
 
 class DmdCode:
-    def __init__(self, code, folder, url):
+    def __init__(self, code, folder, url, error=None):
         self.code = code
         self.folder = folder
         self.url = url
+        self.error = error
         self.status = None  # e.g. "active", "inactive", "unknown"
 
     def set_status(self, status):
         self.status = status
 
     def __repr__(self):
-        return f"DmdCode(code={self.code}, folder='{self.folder}', url='{self.url}', status='{self.status}')"
-
-
-def main():
-    # Create the parser
-    parser = argparse.ArgumentParser(description="Process an optional mode argument.")
-    
-    # Add the optional mode argument
-    parser.add_argument(
-        "--mode", 
-        choices=["auto", "force"], 
-        default="auto", 
-        help="Specify the mode of operation. Choices are 'auto' (default) or 'force'."
-    )
-    
-    # Parse the command-line arguments
-    args = parser.parse_args()
-    
-    # Access the mode argument
-    mode = args.mode
-
-    access_token = get_access_token()
-    existing_versions = get_report_versions()
-    version = get_dmd_version_via_lookup(access_token)
-
-    if mode == "force":
-        update_reports(access_token, version)
-    elif mode == "auto":
-        if version in existing_versions:
-            print(f"Version {version} already exists in reports directory.")
-        else:
-            update_reports(access_token, version)
+            return (f"DmdCode(code={self.code}, folder='{self.folder}', "
+                    f"url='{self.url}', status='{self.status}', error={self.error!r})") 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate dm+d status report")
@@ -565,13 +566,15 @@ def main():
     should_run = args.mode == "force" or version not in existing_versions
 
     if should_run:
-        code_objects = update_reports(access_token, version)
+        code_objects, suspect_objects = update_reports(access_token, version)
 
         # After report is written, fail if needed
         if args.fail_on_problem:
             problems = [obj for obj in code_objects if obj.status in ("inactive", "unknown")]
-            if problems:
+            if problems or suspect_objects:
                 print("\nIssues detected with the following codes:\n")
+                for obj in suspect_objects:
+                    print(f"- {obj.code} (malformed: {obj.error}) in folder '{obj.folder}'")
                 for obj in problems:
                     print(f"- {obj.code} ({obj.status}) in folder '{obj.folder}'")
                 print("\nFailing workflow due to problem codes.\n")
